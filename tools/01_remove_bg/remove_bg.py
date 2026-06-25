@@ -1,5 +1,6 @@
 import sys
 import os
+os.environ["CUDA_VISIBLE_DEVICES"] = "-1"  # force CPU, suppress CUDA DLL warnings
 from pathlib import Path
 
 EXTS = {'.jpg', '.jpeg', '.png', '.webp', '.bmp'}
@@ -7,13 +8,13 @@ EXTS = {'.jpg', '.jpeg', '.png', '.webp', '.bmp'}
 
 def ensure_deps():
     try:
-        from rembg import remove
+        from rembg import remove, new_session
         from PIL import Image
-        return remove, Image
+        session = new_session(providers=["CPUExecutionProvider"])
+        return lambda img: remove(img, session=session), Image
     except ImportError:
         print("\n  ERROR: rembg no está instalado.")
-        print("  Ejecuta en una terminal:")
-        print("    pip install rembg onnxruntime pillow\n")
+        print("  Ejecuta install.bat primero.\n")
         input("  Presiona Enter para salir...")
         sys.exit(1)
 
