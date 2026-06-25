@@ -2,7 +2,7 @@
 Video Social Resize — Exporta vídeos a todos los formatos de red social.
 
 Uso: arrastra un vídeo o carpeta sobre el icono del escritorio.
-Resultado: carpeta social/<nombre>/ junto al original con los 6 MP4.
+Resultado: carpeta social/<nombre>/ junto al original con los 6 MOV (ProRes).
 
 Licencia: CC BY-NC-SA 4.0 — https://creativecommons.org/licenses/by-nc-sa/4.0/
 Auto-framing con MediaPipe Face Detection (Apache 2.0) — © Google LLC
@@ -17,7 +17,7 @@ FORMATS = {
     "feed_4x5":     (1080, 1350),
     "square_1x1":   (1080, 1080),
     "youtube_16x9": (1920, 1080),
-    "twitter_16x9": (1200,  674),  # 675 es impar — libx264 requiere par
+    "twitter_16x9": (1200,  674),  # 675 es impar — los codecs de vídeo requieren dimensiones pares
     "linkedin_1x1": (1200, 1200),
 }
 
@@ -34,15 +34,28 @@ def find_bin(names: list[str]) -> str | None:
     return None
 
 
-def get_video_size(ffprobe: str, video: Path) -> tuple[int, int]:
+def get_video_info(ffprobe: str, video: Path) -> tuple[int, int, str]:
     r = subprocess.run(
         [ffprobe, "-v", "quiet", "-select_streams", "v:0",
-         "-show_entries", "stream=width,height",
-         "-of", "csv=s=x:p=0", str(video)],
+         "-show_entries", "stream=width,height,pix_fmt",
+         "-of", "default=noprint_wrappers=1:nokey=1", str(video)],
         capture_output=True, text=True,
     )
-    w, h = r.stdout.strip().split("x")
-    return int(w), int(h)
+    lines = r.stdout.strip().splitlines()
+    return int(lines[0]), int(lines[1]), lines[2]
+
+
+_HIGH_BIT_DEPTH = {"p010", "p016", "10le", "10be", "12le", "12be", "14le", "14be", "16le", "16be"}
+
+
+def is_high_bit_depth(pix_fmt: str) -> bool:
+    return any(tag in pix_fmt for tag in _HIGH_BIT_DEPTH)
+
+
+def prores_params(high_bit: bool) -> list[str]:
+    if high_bit:
+        return ["-c:v", "prores_ks", "-profile:v", "4", "-pix_fmt", "yuv444p10le", "-c:a", "pcm_s24le"]
+    return ["-c:v", "prores_ks", "-profile:v", "3", "-pix_fmt", "yuv422p10le", "-c:a", "pcm_s16le"]
 
 
 def sample_subject_cx(video: Path, n_samples: int = 20) -> float:
@@ -149,21 +162,24 @@ def process(video_path: str, ffmpeg: str, ffprobe: str) -> None:
         print(f"\n  {video.name}")
 
         try:
-            src_w, src_h = get_video_size(ffprobe, video)
+            src_w, src_h, pix_fmt = get_video_info(ffprobe, video)
         except Exception as e:
             print(f"  [ERROR] No se pudo leer la resolución: {e}")
             continue
 
+        high_bit = is_high_bit_depth(pix_fmt)
+        codec_label = "ProRes 4444" if high_bit else "ProRes 422 HQ"
+
         print(f"  Analizando sujeto en {20} frames muestreados...")
         cx = sample_subject_cx(video)
         label = f"cara detectada cx={cx:.2f}" if cx != 0.5 else "centro (sin cara detectada)"
-        print(f"  Resolución: {src_w}x{src_h} — Auto-encuadre: {label}")
+        print(f"  Resolución: {src_w}x{src_h} [{pix_fmt}] — {codec_label} — Auto-encuadre: {label}")
 
         out_dir = video.parent / "social" / video.stem
         out_dir.mkdir(parents=True, exist_ok=True)
 
         for name, (tw, th) in FORMATS.items():
-            out = out_dir / f"{video.stem}_{name}.mp4"
+            out = out_dir / f"{video.stem}_{name}.mov"
             filter_type, filter_str = build_filter(src_w, src_h, tw, th, cx=cx)
 
             cmd = [ffmpeg, "-y", "-i", str(video)]
@@ -172,15 +188,7 @@ def process(video_path: str, ffmpeg: str, ffprobe: str) -> None:
             else:
                 cmd += ["-vf", filter_str, "-map", "0:v", "-map", "0:a?"]
 
-            cmd += [
-                "-c:v", "libx264",
-                "-crf", "20",
-                "-preset", "fast",
-                "-c:a", "aac",
-                "-b:a", "192k",
-                "-movflags", "+faststart",
-                str(out),
-            ]
+            cmd += prores_params(high_bit) + [str(out)]
 
             result = subprocess.run(cmd, capture_output=True, text=True)
 
