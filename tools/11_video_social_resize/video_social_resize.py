@@ -46,16 +46,46 @@ def get_video_info(ffprobe: str, video: Path) -> tuple[int, int, str]:
 
 
 _HIGH_BIT_DEPTH = {"p010", "p016", "10le", "10be", "12le", "12be", "14le", "14be", "16le", "16be"}
+_12BIT_UP      = {"12le", "12be", "14le", "14be", "16le", "16be"}
 
 
 def is_high_bit_depth(pix_fmt: str) -> bool:
     return any(tag in pix_fmt for tag in _HIGH_BIT_DEPTH)
 
 
-def prores_params(high_bit: bool) -> list[str]:
-    if high_bit:
-        return ["-c:v", "prores_ks", "-profile:v", "4", "-pix_fmt", "yuv444p10le", "-c:a", "pcm_s24le"]
-    return ["-c:v", "prores_ks", "-profile:v", "3", "-pix_fmt", "yuv422p10le", "-c:a", "pcm_s16le"]
+def get_codec_params(codec: str, pix_fmt: str) -> tuple[list[str], str, str]:
+    """Devuelve (parámetros_ffmpeg, etiqueta_display, extensión)."""
+    if codec == "h264":
+        return (
+            ["-c:v", "libx264", "-crf", "20", "-preset", "fast",
+             "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart"],
+            "H.264",
+            ".mp4",
+        )
+    if not is_high_bit_depth(pix_fmt):
+        return (
+            ["-c:v", "prores_ks", "-profile:v", "3", "-pix_fmt", "yuv422p10le", "-c:a", "pcm_s16le"],
+            "ProRes 422 HQ (10-bit)",
+            ".mov",
+        )
+    bd = 12 if any(t in pix_fmt for t in _12BIT_UP) else 10
+    return (
+        ["-c:v", "prores_ks", "-profile:v", "4", "-pix_fmt", f"yuv444p{bd}le", "-c:a", "pcm_s24le"],
+        f"ProRes 4444 ({bd}-bit)",
+        ".mov",
+    )
+
+
+def ask_codec() -> str:
+    print("\n  ¿Formato de exportación?")
+    print("  [1] H.264 MP4   (comprimido — para subir directamente a redes)")
+    print("  [2] ProRes MOV  (editorial — 422 HQ para 8-bit, 4444 para 10/12-bit)")
+    print()
+    while True:
+        choice = input("  Elige (1/2): ").strip()
+        if choice in ("1", "2"):
+            return "h264" if choice == "1" else "prores"
+        print("  Opción no válida. Escribe 1 o 2.")
 
 
 def sample_subject_cx(video: Path, n_samples: int = 20) -> float:
@@ -148,7 +178,7 @@ def build_filter(
     )
 
 
-def process(video_path: str, ffmpeg: str, ffprobe: str) -> None:
+def process(video_path: str, ffmpeg: str, ffprobe: str, codec: str) -> None:
     p = Path(video_path)
     if p.is_dir():
         files = [f for f in p.iterdir() if f.suffix.lower() in VIDEO_EXTS]
@@ -167,8 +197,7 @@ def process(video_path: str, ffmpeg: str, ffprobe: str) -> None:
             print(f"  [ERROR] No se pudo leer la resolución: {e}")
             continue
 
-        high_bit = is_high_bit_depth(pix_fmt)
-        codec_label = "ProRes 4444" if high_bit else "ProRes 422 HQ"
+        codec_params, codec_label, ext = get_codec_params(codec, pix_fmt)
 
         print(f"  Analizando sujeto en {20} frames muestreados...")
         cx = sample_subject_cx(video)
@@ -179,7 +208,7 @@ def process(video_path: str, ffmpeg: str, ffprobe: str) -> None:
         out_dir.mkdir(parents=True, exist_ok=True)
 
         for name, (tw, th) in FORMATS.items():
-            out = out_dir / f"{video.stem}_{name}.mov"
+            out = out_dir / f"{video.stem}_{name}{ext}"
             filter_type, filter_str = build_filter(src_w, src_h, tw, th, cx=cx)
 
             cmd = [ffmpeg, "-y", "-i", str(video)]
@@ -188,7 +217,7 @@ def process(video_path: str, ffmpeg: str, ffprobe: str) -> None:
             else:
                 cmd += ["-vf", filter_str, "-map", "0:v", "-map", "0:a?"]
 
-            cmd += prores_params(high_bit) + [str(out)]
+            cmd += codec_params + [str(out)]
 
             result = subprocess.run(cmd, capture_output=True, text=True)
 
@@ -223,8 +252,11 @@ def main() -> None:
         input("  Presiona Enter para salir...")
         return
 
+    codec = ask_codec()
+    print()
+
     for arg in sys.argv[1:]:
-        process(arg.strip('"'), ffmpeg, ffprobe)
+        process(arg.strip('"'), ffmpeg, ffprobe, codec)
 
     print()
     input("  Presiona Enter para cerrar...")
