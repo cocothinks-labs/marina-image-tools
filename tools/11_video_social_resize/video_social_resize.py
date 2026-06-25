@@ -88,7 +88,7 @@ def ask_codec() -> str:
         print("  Opción no válida. Escribe 1 o 2.")
 
 
-def sample_subject_cx(video: Path, n_samples: int = 20) -> float:
+def sample_subject_cx(video: Path, ffprobe: str, n_samples: int = 20) -> float:
     """
     Muestrea N frames del vídeo, detecta la cara principal con MediaPipe
     y devuelve la mediana del centro X (0.0–1.0).
@@ -100,21 +100,30 @@ def sample_subject_cx(video: Path, n_samples: int = 20) -> float:
     try:
         import cv2
         import mediapipe as mp
+    except ImportError:
+        return 0.5
 
-        cap = cv2.VideoCapture(str(video))
-        total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        if total <= 0:
-            cap.release()
+    try:
+        # Duración vía ffprobe: fiable en todos los contenedores (MKV, WebM, MP4...)
+        # OpenCV CAP_PROP_FRAME_COUNT falla en muchos formatos y aborta la detección.
+        r = subprocess.run(
+            [ffprobe, "-v", "quiet", "-show_entries", "format=duration",
+             "-of", "default=noprint_wrappers=1:nokey=1", str(video)],
+            capture_output=True, text=True,
+        )
+        duration_s = float(r.stdout.strip() or "0")
+        if duration_s <= 0:
             return 0.5
 
-        step = max(1, total // n_samples)
+        cap = cv2.VideoCapture(str(video))
         cx_list: list[float] = []
 
         with mp.solutions.face_detection.FaceDetection(
-            model_selection=1, min_detection_confidence=0.5
+            model_selection=0, min_detection_confidence=0.4
         ) as detector:
-            for i in range(0, total, step):
-                cap.set(cv2.CAP_PROP_POS_FRAMES, i)
+            for i in range(n_samples):
+                t_ms = (i / max(n_samples - 1, 1)) * duration_s * 1000
+                cap.set(cv2.CAP_PROP_POS_MSEC, t_ms)
                 ret, frame = cap.read()
                 if not ret:
                     continue
@@ -128,17 +137,14 @@ def sample_subject_cx(video: Path, n_samples: int = 20) -> float:
                         ),
                     )
                     bb = best.location_data.relative_bounding_box
-                    cx_list.append(
-                        max(0.0, min(1.0, bb.xmin + bb.width / 2))
-                    )
+                    cx_list.append(max(0.0, min(1.0, bb.xmin + bb.width / 2)))
 
         cap.release()
-
         if cx_list:
             return statistics.median(cx_list)
 
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"  [Auto-encuadre] advertencia: {e}")
 
     return 0.5
 
@@ -200,7 +206,7 @@ def process(video_path: str, ffmpeg: str, ffprobe: str, codec: str) -> None:
         codec_params, codec_label, ext = get_codec_params(codec, pix_fmt)
 
         print(f"  Analizando sujeto en {20} frames muestreados...")
-        cx = sample_subject_cx(video)
+        cx = sample_subject_cx(video, ffprobe)
         label = f"cara detectada cx={cx:.2f}" if cx != 0.5 else "centro (sin cara detectada)"
         print(f"  Resolución: {src_w}x{src_h} [{pix_fmt}] — {codec_label} — Auto-encuadre: {label}")
 

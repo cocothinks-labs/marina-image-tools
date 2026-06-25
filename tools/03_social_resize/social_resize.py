@@ -38,11 +38,14 @@ def detect_subject_center(img_rgb) -> tuple[float, float]:
     """
     try:
         import mediapipe as mp
+    except ImportError:
+        return 0.5, 0.5
+
+    try:
         with mp.solutions.face_detection.FaceDetection(
-            model_selection=0, min_detection_confidence=0.5
+            model_selection=0, min_detection_confidence=0.4
         ) as detector:
             results = detector.process(img_rgb)
-
         if results.detections:
             best = max(
                 results.detections,
@@ -52,11 +55,13 @@ def detect_subject_center(img_rgb) -> tuple[float, float]:
                 ),
             )
             bb = best.location_data.relative_bounding_box
-            cx = max(0.0, min(1.0, bb.xmin + bb.width / 2))
-            cy = max(0.0, min(1.0, bb.ymin + bb.height / 2))
-            return cx, cy
-    except Exception:
-        pass
+            return (
+                max(0.0, min(1.0, bb.xmin + bb.width / 2)),
+                max(0.0, min(1.0, bb.ymin + bb.height / 2)),
+            )
+    except Exception as e:
+        print(f"  [Auto-encuadre] advertencia: {e}")
+
     return 0.5, 0.5
 
 
