@@ -141,3 +141,25 @@
 **Resultado:** Carpeta `<nombre_imagen>/` junto al original con los PNGs `pose_01.png`, `pose_02.png`, etc.
 
 **Dependencias:** `Pillow`, `numpy` (opcional, más rápido con él)
+
+---
+
+## Video Social Resize — Exportar vídeos a redes sociales
+
+**Qué hace:** Exporta un vídeo a los 6 formatos estándar de redes sociales en una sola operación. Aplica la misma lógica que Social Resize para imágenes: recorte centrado si el vídeo es más ancho que el formato destino, o fondo desenfocado si es más alto. El audio se conserva en todos los formatos.
+
+**Formatos exportados:**
+| Formato | Resolución |
+|---|---|
+| Instagram Reels (9:16) | 1080×1920 |
+| Instagram Feed (4:5) | 1080×1350 |
+| Square (1:1) | 1080×1080 |
+| YouTube (16:9) | 1920×1080 |
+| Twitter (16:9) | 1200×675 |
+| LinkedIn (1:1) | 1200×1200 |
+
+**Acepta:** MP4, MOV, AVI, MKV, WEBM, M4V, MXF (archivo individual o carpeta)
+
+**Resultado:** Carpeta `social/<nombre_video>/` junto al original con los 6 MP4.
+
+**Dependencias:** `ffmpeg` binario en `C:\ffmpeg\bin\`

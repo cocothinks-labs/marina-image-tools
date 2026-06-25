@@ -18,7 +18,8 @@ $tools = @(
     @{ Name = "7 Meta Viewer";     Bat = "$root\tools\07_meta_viewer\meta_viewer.bat";          Dir = "$root\tools\07_meta_viewer" },
     @{ Name = "8 Grid Maker";      Bat = "$root\tools\08_grid_maker\grid_maker.bat";            Dir = "$root\tools\08_grid_maker" },
     @{ Name = "9 Frame Extractor"; Bat = "$root\tools\09_frame_extractor\frame_extractor.bat"; Dir = "$root\tools\09_frame_extractor" },
-    @{ Name = "10 EXR to PNG";     Bat = "$root\tools\10_exr_to_png\exr_to_png.bat";           Dir = "$root\tools\10_exr_to_png" }
+    @{ Name = "10 EXR to PNG";          Bat = "$root\tools\10_exr_to_png\exr_to_png.bat";                     Dir = "$root\tools\10_exr_to_png" },
+    @{ Name = "11 Video Social Resize"; Bat = "$root\tools\11_video_social_resize\video_social_resize.bat"; Dir = "$root\tools\11_video_social_resize" }
 )
 
 Write-Host ""

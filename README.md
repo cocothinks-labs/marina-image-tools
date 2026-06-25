@@ -21,6 +21,7 @@
 | 8 | **Grid Maker** | Combina imágenes en una hoja de referencia |
 | 9 | **Frame Extractor** | Extrae fotogramas de un vídeo |
 | 10 | **EXR to PNG** | Convierte EXR 32-bit a PNG con tone mapping |
+| 11 | **Video Social Resize** | Exporta vídeos a los 6 formatos de redes sociales |
 
 Ver [TOOLS.md](TOOLS.md) para descripción detallada de cada una.
 
