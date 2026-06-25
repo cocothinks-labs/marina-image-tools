@@ -27,6 +27,16 @@ Ver [TOOLS.md](TOOLS.md) para descripción detallada de cada una.
 
 ---
 
+## Auto-encuadre inteligente
+
+Las herramientas **Social Resize** (imágenes) y **Video Social Resize** (vídeo) detectan automáticamente la cara del sujeto principal y centran el encuadre sobre ella al recortar.
+
+Si [MediaPipe](https://github.com/google-ai-edge/mediapipe) no está instalado, ambas herramientas funcionan con recorte centrado exactamente igual que antes. El auto-encuadre se activa solo con ejecutar `install.bat`.
+
+> **Dependencia de terceros:** MediaPipe Face Detection — [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0) — © Google LLC
+
+---
+
 ## Requisitos del sistema
 
 | Requisito | Detalle |

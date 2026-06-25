@@ -1,4 +1,14 @@
+"""
+Video Social Resize — Exporta vídeos a todos los formatos de red social.
+
+Uso: arrastra un vídeo o carpeta sobre el icono del escritorio.
+Resultado: carpeta social/<nombre>/ junto al original con los 6 MP4.
+
+Licencia: CC BY-NC-SA 4.0 — https://creativecommons.org/licenses/by-nc-sa/4.0/
+Auto-framing con MediaPipe Face Detection (Apache 2.0) — © Google LLC
+"""
 import sys
+import statistics
 import subprocess
 from pathlib import Path
 
@@ -7,7 +17,7 @@ FORMATS = {
     "feed_4x5":     (1080, 1350),
     "square_1x1":   (1080, 1080),
     "youtube_16x9": (1920, 1080),
-    "twitter_16x9": (1200,  674),  # 675 is odd — libx264 needs even dimensions
+    "twitter_16x9": (1200,  674),  # 675 es impar — libx264 requiere par
     "linkedin_1x1": (1200, 1200),
 }
 
@@ -35,21 +45,75 @@ def get_video_size(ffprobe: str, video: Path) -> tuple[int, int]:
     return int(w), int(h)
 
 
+def sample_subject_cx(video: Path, n_samples: int = 20) -> float:
+    """
+    Muestrea N frames del vídeo, detecta la cara principal con MediaPipe
+    y devuelve la mediana del centro X (0.0–1.0).
+    Retorna 0.5 (centro) si MediaPipe no está disponible o no detecta caras.
+
+    MediaPipe Face Detection — Apache 2.0 — © Google LLC
+    https://github.com/google-ai-edge/mediapipe
+    """
+    try:
+        import cv2
+        import mediapipe as mp
+
+        cap = cv2.VideoCapture(str(video))
+        total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        if total <= 0:
+            cap.release()
+            return 0.5
+
+        step = max(1, total // n_samples)
+        cx_list: list[float] = []
+
+        with mp.solutions.face_detection.FaceDetection(
+            model_selection=1, min_detection_confidence=0.5
+        ) as detector:
+            for i in range(0, total, step):
+                cap.set(cv2.CAP_PROP_POS_FRAMES, i)
+                ret, frame = cap.read()
+                if not ret:
+                    continue
+                results = detector.process(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+                if results.detections:
+                    best = max(
+                        results.detections,
+                        key=lambda d: (
+                            d.location_data.relative_bounding_box.width
+                            * d.location_data.relative_bounding_box.height
+                        ),
+                    )
+                    bb = best.location_data.relative_bounding_box
+                    cx_list.append(
+                        max(0.0, min(1.0, bb.xmin + bb.width / 2))
+                    )
+
+        cap.release()
+
+        if cx_list:
+            return statistics.median(cx_list)
+
+    except Exception:
+        pass
+
+    return 0.5
+
+
 def _even(n: int) -> int:
     return n if n % 2 == 0 else n - 1
 
 
-def build_filter(src_w: int, src_h: int, tw: int, th: int) -> tuple[str, str]:
+def build_filter(
+    src_w: int, src_h: int, tw: int, th: int, cx: float = 0.5
+) -> tuple[str, str]:
     """
-    Returns (filter_type, filter_string).
-    filter_type is 'vf' or 'complex'.
+    Construye el filtro ffmpeg para redimensionar con auto-encuadre.
+    Retorna (tipo, filtro) donde tipo es 'vf' o 'complex'.
 
-    Strategy (mirrors image social_resize):
-      - Same ratio  → scale
-      - Source wider → scale to fill height, crop center width
-      - Source taller → blurred background + centered foreground
-
-    All output dimensions are forced to even numbers (libx264 requirement).
+    - Mismo ratio  → scale.
+    - Más ancho    → scale a altura, crop ancla en cx (sujeto detectado).
+    - Más alto     → blur-pad (fondo desenfocado + sujeto centrado).
     """
     tw, th = _even(tw), _even(th)
     sr = src_w / src_h
@@ -59,13 +123,10 @@ def build_filter(src_w: int, src_h: int, tw: int, th: int) -> tuple[str, str]:
         return "vf", f"scale={tw}:{th}"
 
     if sr > tr:
-        # Source is wider than target → crop center
-        return "vf", (
-            f"scale=-2:{th}:force_original_aspect_ratio=increase,"
-            f"crop={tw}:{th}"
-        )
+        scale_w = _even(int(src_w * th / src_h))
+        crop_x = _even(max(0, min(scale_w - tw, int(cx * scale_w - tw // 2))))
+        return "vf", f"scale={scale_w}:{th},crop={tw}:{th}:{crop_x}:0"
 
-    # Source is taller than target → blur-pad
     return "complex", (
         f"[0:v]scale={tw}:{th}:force_original_aspect_ratio=increase,"
         f"crop={tw}:{th},boxblur=40:40[bg];"
@@ -89,20 +150,23 @@ def process(video_path: str, ffmpeg: str, ffprobe: str) -> None:
 
         try:
             src_w, src_h = get_video_size(ffprobe, video)
-            print(f"  Resolución: {src_w}x{src_h}")
         except Exception as e:
             print(f"  [ERROR] No se pudo leer la resolución: {e}")
             continue
+
+        print(f"  Analizando sujeto en {20} frames muestreados...")
+        cx = sample_subject_cx(video)
+        label = f"cara detectada cx={cx:.2f}" if cx != 0.5 else "centro (sin cara detectada)"
+        print(f"  Resolución: {src_w}x{src_h} — Auto-encuadre: {label}")
 
         out_dir = video.parent / "social" / video.stem
         out_dir.mkdir(parents=True, exist_ok=True)
 
         for name, (tw, th) in FORMATS.items():
             out = out_dir / f"{video.stem}_{name}.mp4"
-            filter_type, filter_str = build_filter(src_w, src_h, tw, th)
+            filter_type, filter_str = build_filter(src_w, src_h, tw, th, cx=cx)
 
             cmd = [ffmpeg, "-y", "-i", str(video)]
-
             if filter_type == "complex":
                 cmd += ["-filter_complex", filter_str, "-map", "[v]", "-map", "0:a?"]
             else:
@@ -125,9 +189,9 @@ def process(video_path: str, ffmpeg: str, ffprobe: str) -> None:
                 print(f"    {name:20s} {tw}x{th}  {size_mb:.1f} MB")
             else:
                 print(f"    {name:20s} ERROR")
-                last = result.stderr.strip().splitlines()
-                if last:
-                    print(f"      {last[-1]}")
+                lines = result.stderr.strip().splitlines()
+                if lines:
+                    print(f"      {lines[-1]}")
 
     print(f"\n  Versiones guardadas en: social/")
 
@@ -146,6 +210,7 @@ def main() -> None:
         print("\n  VIDEO SOCIAL RESIZE — Exporta vídeos a todos los formatos de red social\n")
         print("  Formatos: Instagram Reels (9:16), Feed (4:5), Square (1:1),")
         print("            YouTube (16:9), Twitter (16:9), LinkedIn (1:1)\n")
+        print("  Auto-encuadre con MediaPipe (Google) si está instalado.\n")
         print("  Arrastra un vídeo o carpeta sobre el icono del escritorio.\n")
         input("  Presiona Enter para salir...")
         return

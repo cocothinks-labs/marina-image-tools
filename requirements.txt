@@ -2,3 +2,5 @@ Pillow>=10.0
 rembg>=2.0
 onnxruntime>=1.16
 imagehash>=4.3
+mediapipe>=0.10
+opencv-python>=4.8
