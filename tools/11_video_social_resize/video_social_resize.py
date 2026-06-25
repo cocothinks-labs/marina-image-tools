@@ -7,7 +7,7 @@ FORMATS = {
     "feed_4x5":     (1080, 1350),
     "square_1x1":   (1080, 1080),
     "youtube_16x9": (1920, 1080),
-    "twitter_16x9": (1200,  675),
+    "twitter_16x9": (1200,  674),  # 675 is odd — libx264 needs even dimensions
     "linkedin_1x1": (1200, 1200),
 }
 
@@ -35,16 +35,23 @@ def get_video_size(ffprobe: str, video: Path) -> tuple[int, int]:
     return int(w), int(h)
 
 
+def _even(n: int) -> int:
+    return n if n % 2 == 0 else n - 1
+
+
 def build_filter(src_w: int, src_h: int, tw: int, th: int) -> tuple[str, str]:
     """
     Returns (filter_type, filter_string).
-    filter_type is 'vf' for simple filters or 'complex' for filtergraph.
+    filter_type is 'vf' or 'complex'.
 
     Strategy (mirrors image social_resize):
       - Same ratio  → scale
       - Source wider → scale to fill height, crop center width
       - Source taller → blurred background + centered foreground
+
+    All output dimensions are forced to even numbers (libx264 requirement).
     """
+    tw, th = _even(tw), _even(th)
     sr = src_w / src_h
     tr = tw / th
 
@@ -52,14 +59,13 @@ def build_filter(src_w: int, src_h: int, tw: int, th: int) -> tuple[str, str]:
         return "vf", f"scale={tw}:{th}"
 
     if sr > tr:
-        # Source is wider than target → crop
+        # Source is wider than target → crop center
         return "vf", (
             f"scale=-2:{th}:force_original_aspect_ratio=increase,"
             f"crop={tw}:{th}"
         )
 
     # Source is taller than target → blur-pad
-    # Background: scale to fill, blur. Foreground: scale to fit width.
     return "complex", (
         f"[0:v]scale={tw}:{th}:force_original_aspect_ratio=increase,"
         f"crop={tw}:{th},boxblur=40:40[bg];"
